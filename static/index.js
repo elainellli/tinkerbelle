@@ -164,6 +164,15 @@ control.onclick = () => {
     ensureButton('btnBlinkBlackTwice', 'Blink Black Twice', () => {
   blinkBlackTwice();
 });
+    ensureButton('btnFlashRedBlackTwice', 'Flash Red/Black Twice', () => {
+        flashRedBlackTwice();
+    }
+);
+
+    ensureButton('btnFlashBlueBlackTwice', 'Flash Blue/Black Twice', () => {
+        flashBlueBlackTwice();
+    }
+);
     // --- End added buttons ---
   }
 };
@@ -281,6 +290,32 @@ function blinkBlackTwice(duration = 300) {
   }
 
   blink();
+}
+
+function flashRedBlackTwice() {
+  const body = document.body;
+  let count = 0;
+  const colors = ["red", "black"];
+  const interval = setInterval(() => {
+    body.style.backgroundColor = colors[count % 2];
+    count++;
+    if (count >= 4) { // 2 cycles = 4 changes
+      clearInterval(interval);
+    }
+  }, 300); // change every 300ms
+}
+
+function flashBlueBlackTwice() {
+  const body = document.body;
+  let count = 0;
+  const colors = ["blue", "black"];
+  const interval = setInterval(() => {
+    body.style.backgroundColor = colors[count % 2];
+    count++;
+    if (count >= 4) {
+      clearInterval(interval);
+    }
+  }, 300);
 }
 
 // --- Added helpers and effects ---
