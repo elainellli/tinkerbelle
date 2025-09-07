@@ -125,6 +125,7 @@ control.onclick = () => {
     }
 
     ensureButton('btnSparkle', 'Sparkle', () => {
+      playTwinkle();
       sparkle(getCurrentHex());
     });
 
@@ -142,22 +143,6 @@ control.onclick = () => {
       playCheer();
     });
 
-    ensureButton('btnLogo', 'Show Logo', () => {
-      const url = prompt('Team logo URL (PNG/SVG):', '');
-      if (url) showLogo(url);
-    });
-
-    ensureButton('btnVictoryWave', 'Quick Wave (fallback)', () => {
-      victoryWave(getCurrentHex());
-    });
-
-    ensureButton('btnArenaSetup', 'Arena Setup', () => {
-      const pos = prompt('Device position (0-based, left→right):', String(arenaPos));
-      const total = prompt('Total devices:', String(arenaTotal));
-      if (pos !== null) arenaPos = Math.max(0, parseInt(pos, 10) || 0);
-      if (total !== null) arenaTotal = Math.max(arenaPos + 1, parseInt(total, 10) || arenaTotal);
-      alert(`Arena set → pos: ${arenaPos}, total: ${arenaTotal}`);
-    });
 
     ensureButton('btnArenaWave', 'Arena Wave', () => {
       const color = getCurrentHex();
@@ -167,6 +152,18 @@ control.onclick = () => {
       // Also run locally as a fallback
       arenaWave(color, 3000, 1.5);
     });
+
+    ensureButton('btnBlinkRedTwice', 'Blink Red Twice', () => {
+      blinkRedTwice();
+    });
+
+    ensureButton('btnBlinkBlueTwice', 'Blink Blue Twice', () => {
+      blinkBlueTwice();
+    });
+
+    ensureButton('btnBlinkBlackTwice', 'Blink Black Twice', () => {
+  blinkBlackTwice();
+});
     // --- End added buttons ---
   }
 };
@@ -221,10 +218,69 @@ function sparkle(color, duration = 3000) {
     const hex = on ? color : '#FFFFFF';
     document.body.style.backgroundColor = hex;
     socket.emit('hex', hex);
-    playTwinkle();
     on = !on;
   }, 200);
   setTimeout(() => clearInterval(interval), duration);
+}
+
+// Blink the screen red twice
+function blinkRedTwice(duration = 300) {
+  let count = 0;
+  const maxBlinks = 4; // red → white → red → white (2 full blinks)
+
+  function blink() {
+    if (count >= maxBlinks) return;
+
+    // Even counts = red, odd counts = white
+    const color = (count % 2 === 0) ? '#FF0000' : '#FFFFFF';
+    document.body.style.backgroundColor = color;
+    socket.emit('hex', color);
+
+    count++;
+    setTimeout(blink, duration);
+  }
+
+  blink();
+}
+
+// Blink the screen blue twice
+function blinkBlueTwice(duration = 300) {
+  let count = 0;
+  const maxBlinks = 4; // blue → white → blue → white (2 full blinks)
+
+  function blink() {
+    if (count >= maxBlinks) return;
+
+    // Even counts = blue, odd counts = white
+    const color = (count % 2 === 0) ? '#0000FF' : '#FFFFFF';
+    document.body.style.backgroundColor = color;
+    socket.emit('hex', color);
+
+    count++;
+    setTimeout(blink, duration);
+  }
+
+  blink();
+}
+
+// Blink the screen black twice
+function blinkBlackTwice(duration = 300) {
+  let count = 0;
+  const maxBlinks = 4; // black → white → black → white (2 full blinks)
+
+  function blink() {
+    if (count >= maxBlinks) return;
+
+    // Even counts = black, odd counts = white
+    const color = (count % 2 === 0) ? '#000000' : '#FFFFFF';
+    document.body.style.backgroundColor = color;
+    socket.emit('hex', color);
+
+    count++;
+    setTimeout(blink, duration);
+  }
+
+  blink();
 }
 
 // --- Added helpers and effects ---
@@ -247,13 +303,13 @@ function mix(hex1, hex2, t){
 }
 
 // Smooth pulse: bright ↔ dim around the chosen color
-function pulse(color, duration = 6000) {
+function pulse(color, duration = 10000) {
   const start = Date.now();
   const tick = () => {
     const t = (Date.now() - start) / duration;
     if (t >= 1) return;
     // Use sine for breathing: 0→1→0
-    const phase = (Math.sin(t * Math.PI * 2) + 1) / 2; // 0..1..0
+    const phase = (Math.sin(t * Math.PI * 4) + 1) / 2; // 0..1..0
     const c = mix('#000000', color, 0.3 + 0.7*phase); // avoid going totally dark
     document.body.style.backgroundColor = c;
     socket.emit('hex', c);
@@ -263,13 +319,13 @@ function pulse(color, duration = 6000) {
 }
 
 // Pulse toward WHITE and back (color → white → color) with synced cheer sound
-function pulseToWhite(color, duration = 3000) {
+function pulseToWhite(color, duration = 10000) {
   const start = performance.now();
   const white = '#FFFFFF';
   function frame(now){
     const t = Math.min(1, (now - start) / duration); // 0..1
     // Smooth 0→1→0 curve
-    const w = Math.sin(t * Math.PI); // 0..1..0
+    const w = Math.sin(t * Math.PI * 2); // 0..1..0
     const c = mix(color, white, w);
     document.body.style.backgroundColor = c;
     socket.emit('hex', c);
@@ -303,12 +359,13 @@ function playEpic(){
 }
 
 function playTwinkle(){
-    const q = 'Woohoo Mouse Squirrel Cartoon';
+    const q = 'twinkle whoosh';
     socket.emit('audio', q);
     getSound(encodeURI(q));
 }
 
-function showLogo(teamLogoUrl){
+function showLogo(){
+  const teamLogoUrl = '/static/gg.png';
   document.body.style.background = `url(${teamLogoUrl}) center/50% no-repeat`; // show logo centered
   // also send a neutral background color so remote clients update
   const c = '#FFFFFF';
