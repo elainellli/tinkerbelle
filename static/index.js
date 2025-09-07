@@ -224,7 +224,7 @@ audioIn.onkeyup = (e) => { if (e.keyCode === 13) { play.click(); } };
 function sparkle(color, duration = 3000) {
   let on = true;
   const interval = setInterval(() => {
-    const hex = on ? color : '#FFFFFF';
+    const hex = (color === '#FFFFFF') ? (on ? '#000000' : '#FFFFFF') : (on ? color : '#FFFFFF');
     document.body.style.backgroundColor = hex;
     socket.emit('hex', hex);
     on = !on;
