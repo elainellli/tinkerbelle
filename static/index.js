@@ -6,6 +6,29 @@ const audioIn = document.getElementById('audioIn');
 const audio = new Audio();
 let pickr;
 
+// Arena gradient wave settings
+let arenaPos = 0;   // this device's position index (0-based, left→right)
+let arenaTotal = 3; // total devices in the arena row
+
+// Ensure controlPanel container exists (some templates may omit it)
+if (!document.getElementById('controlPanel')) {
+  const cp = document.createElement('div');
+  cp.id = 'controlPanel';
+  cp.style.position = 'fixed';
+  cp.style.bottom = '10px';
+  cp.style.left = '10px';
+  cp.style.background = 'rgba(0,0,0,0.3)';
+  cp.style.padding = '6px';
+  cp.style.borderRadius = '6px';
+  document.body.appendChild(cp);
+  // also add the pickr mount if missing
+  const p = document.createElement('div');
+  p.className = 'pickr';
+  p.style.marginTop = '8px'; // push the color picker lower so it does not overlap buttons
+  p.style.display = 'block';
+  cp.appendChild(p);
+}
+
 const socket = io();
 
 socket.on('connect', () => {
@@ -15,6 +38,11 @@ socket.on('connect', () => {
   socket.onAny((event, ...args) => {
     console.log(event, args);
   });
+});
+
+// Listen for arena-wide wave triggers and animate locally per device
+socket.on('arenaWave', ({ color = '#FFFFFF', duration = 3000, width = 1.5 } = {}) => {
+  arenaWave(color, duration, width);
 });
 
 // enter controller mode
@@ -33,6 +61,7 @@ control.onclick = () => {
     // create our color picker. You can change the swatches that appear at the bottom
     pickr = Pickr.create({
       el: '.pickr',
+      container: document.getElementById('controlPanel'),
       theme: 'classic',
       showAlways: true,
       swatches: [
@@ -60,12 +89,85 @@ control.onclick = () => {
       },
     });
 
+    // Force Pickr panel to scroll with the page instead of being fixed to the viewport
+    (function(){
+      const style = document.createElement('style');
+      style.textContent = `.pcr-app{position:static !important;}`;
+      document.head.appendChild(style);
+    })();
+
     pickr.on('change', (e) => {
       // when pickr color value is changed change background and send message on ws to change background
       const hexCode = e.toHEXA().toString();
       document.body.style.backgroundColor = hexCode;
       socket.emit('hex', hexCode)
     });
+
+    // --- Added: effect buttons ---
+    const panel = document.getElementById('controlPanel');
+
+    function ensureButton(id, label, onClick) {
+      let btn = document.getElementById(id);
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.id = id;
+        btn.textContent = label;
+        btn.style.margin = '4px';
+        panel.appendChild(btn);
+      }
+      btn.onclick = onClick;
+      return btn;
+    }
+
+    // Helper to get current selected color (fallback to white)
+    function getCurrentHex() {
+      try { return pickr.getColor().toHEXA().toString(); } catch (e) { return '#FFFFFF'; }
+    }
+
+    ensureButton('btnSparkle', 'Sparkle', () => {
+      sparkle(getCurrentHex());
+    });
+
+    ensureButton('btnPulse', 'Pulse', () => {
+      pulse(getCurrentHex());
+    });
+
+    ensureButton('btnPulseWhite', 'Pulse → White', () => {
+      // Start a cheer sound and run the white-gradient pulse
+      playCheer();
+      pulseToWhite(getCurrentHex(), 6000);
+    });
+
+    ensureButton('btnCheer', 'Play Cheer', () => {
+      playCheer();
+    });
+
+    ensureButton('btnLogo', 'Show Logo', () => {
+      const url = prompt('Team logo URL (PNG/SVG):', '');
+      if (url) showLogo(url);
+    });
+
+    ensureButton('btnVictoryWave', 'Quick Wave (fallback)', () => {
+      victoryWave(getCurrentHex());
+    });
+
+    ensureButton('btnArenaSetup', 'Arena Setup', () => {
+      const pos = prompt('Device position (0-based, left→right):', String(arenaPos));
+      const total = prompt('Total devices:', String(arenaTotal));
+      if (pos !== null) arenaPos = Math.max(0, parseInt(pos, 10) || 0);
+      if (total !== null) arenaTotal = Math.max(arenaPos + 1, parseInt(total, 10) || arenaTotal);
+      alert(`Arena set → pos: ${arenaPos}, total: ${arenaTotal}`);
+    });
+
+    ensureButton('btnArenaWave', 'Arena Wave', () => {
+      const color = getCurrentHex();
+      // Broadcast to all clients (requires server to re-emit this event)
+      socket.emit('arenaWave', { color, duration: 3000, width: 1.5 });
+      playEpic();
+      // Also run locally as a fallback
+      arenaWave(color, 3000, 1.5);
+    });
+    // --- End added buttons ---
   }
 };
 
@@ -112,3 +214,145 @@ pause.onclick = () => {
   audio.pause();
 };
 audioIn.onkeyup = (e) => { if (e.keyCode === 13) { play.click(); } };
+
+function sparkle(color, duration = 3000) {
+  let on = true;
+  const interval = setInterval(() => {
+    const hex = on ? color : '#FFFFFF';
+    document.body.style.backgroundColor = hex;
+    socket.emit('hex', hex);
+    playTwinkle();
+    on = !on;
+  }, 200);
+  setTimeout(() => clearInterval(interval), duration);
+}
+
+// --- Added helpers and effects ---
+function hexToRgb(h) {
+  const r = parseInt(h.slice(1,3), 16), g = parseInt(h.slice(3,5), 16), b = parseInt(h.slice(5,7), 16);
+  return { r, g, b };
+}
+function rgbToHex(r,g,b){
+  return '#' + [r,g,b].map(v=>{
+    const s = Math.max(0, Math.min(255, v|0)).toString(16).padStart(2,'0');
+    return s;
+  }).join('');
+}
+function mix(hex1, hex2, t){
+  const a = hexToRgb(hex1), b = hexToRgb(hex2);
+  const r = a.r + (b.r - a.r) * t;
+  const g = a.g + (b.g - a.g) * t;
+  const bch = a.b + (b.b - a.b) * t;
+  return rgbToHex(r,g,bch);
+}
+
+// Smooth pulse: bright ↔ dim around the chosen color
+function pulse(color, duration = 6000) {
+  const start = Date.now();
+  const tick = () => {
+    const t = (Date.now() - start) / duration;
+    if (t >= 1) return;
+    // Use sine for breathing: 0→1→0
+    const phase = (Math.sin(t * Math.PI * 2) + 1) / 2; // 0..1..0
+    const c = mix('#000000', color, 0.3 + 0.7*phase); // avoid going totally dark
+    document.body.style.backgroundColor = c;
+    socket.emit('hex', c);
+    requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+// Pulse toward WHITE and back (color → white → color) with synced cheer sound
+function pulseToWhite(color, duration = 3000) {
+  const start = performance.now();
+  const white = '#FFFFFF';
+  function frame(now){
+    const t = Math.min(1, (now - start) / duration); // 0..1
+    // Smooth 0→1→0 curve
+    const w = Math.sin(t * Math.PI); // 0..1..0
+    const c = mix(color, white, w);
+    document.body.style.backgroundColor = c;
+    socket.emit('hex', c);
+    if (t < 1) {
+      requestAnimationFrame(frame);
+    } else {
+      // stop any cheer audio started with this effect
+      audio.pause();
+      audio.currentTime = 0;
+      socket.emit('pauseAudio');
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+function playCheer(){
+  socket.emit('audio', 'crowd cheer');
+  getSound(encodeURI('crowd cheer'));
+}
+
+function playVibration(){
+  const q = 'mobile-phone-vibration';
+  socket.emit('audio', q);
+  getSound(encodeURI(q));
+}
+
+function playEpic(){
+    const q = 'epic';
+    socket.emit('audio', q);
+    getSound(encodeURI(q));
+}
+
+function playTwinkle(){
+    const q = 'Woohoo Mouse Squirrel Cartoon';
+    socket.emit('audio', q);
+    getSound(encodeURI(q));
+}
+
+function showLogo(teamLogoUrl){
+  document.body.style.background = `url(${teamLogoUrl}) center/50% no-repeat`; // show logo centered
+  // also send a neutral background color so remote clients update
+  const c = '#FFFFFF';
+  document.body.style.backgroundColor = c;
+  socket.emit('hex', c);
+}
+
+// Victory wave: quick sequential pulses (single-device fallback = triple pulse)
+function victoryWave(color){
+  // If this is a single device, emulate a wave by three quick pulses
+  const seq = [0, 200, 400];
+  seq.forEach((delay) => {
+    setTimeout(() => {
+      document.body.style.backgroundColor = color;
+      socket.emit('hex', color);
+      setTimeout(() => {
+        const dim = mix('#000000', color, 0.2);
+        document.body.style.backgroundColor = dim;
+        socket.emit('hex', dim);
+      }, 300);
+    }, delay);
+  });
+}
+
+// Arena-wide gradient wave: animate left→right by blending neutral→color per device position
+function arenaWave(color, duration = 3000, width = 1.5) {
+  const neutral = '#FFFFFF';
+  const start = performance.now();
+  const lastIndex = Math.max(0, arenaTotal - 1);
+
+  function frame(now) {
+    const t = Math.min(1, (now - start) / duration); // 0..1
+    const center = t * lastIndex; // Wave center sweeps from index 0 to lastIndex
+    const d = Math.abs(arenaPos - center); // Distance from wave center
+    const w = Math.max(0, 1 - d / Math.max(0.0001, width)); // Weight based on distance
+    const c = mix(color, neutral, w); // Blend from target color to white
+
+    // Update the background color directly
+    document.body.style.backgroundColor = c;
+
+    socket.emit('hex', c); // Emit the current color
+    if (t < 1) requestAnimationFrame(frame); // Continue animation
+  }
+
+  requestAnimationFrame(frame);
+}
+// --- End added helpers and effects ---
